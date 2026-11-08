@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Toko Saya – Pesan Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head><body>
+<header><h1>Toko Saya</h1><a href="admin.html">Admin</a></header>
+<main>
+<h2>Pilih produk</h2><div id="list" class="grid">Memuat produk…</div>
+
+<section id="form" class="box" hidden>
+  <b>Pesan: <span id="pn"></span></b>
+  <label>Nama<input id="name" autocomplete="name"></label>
+  <label>No. WhatsApp<input id="wa" type="tel" placeholder="08xxxxxxxxxx" autocomplete="tel"></label>
+  <label>Jumlah<input id="qty" type="number" min="1" value="1"></label>
+  <label>Catatan (opsional)<textarea id="note" rows="2"></textarea></label>
+  <p>Total: <b id="tot"></b></p>
+  <button id="send">Pesan sekarang</button><p id="err" role="alert"></p>
+</section>
+
+<section id="done" class="box" hidden></section>
+
+<h2>Cek status pesanan</h2>
+<div class="row"><input id="cid" placeholder="Kode pesanan, mis. ORDABC123"><button id="chk">Cek status</button></div>
+<p id="cres"></p>
+</main>
+<script>
+const ADMIN_WA = '6281234567890'; // ganti dengan nomor WA kamu (format 62…)
+const $ = (id) => document.getElementById(id);
+const rp = (n) => 'Rp' + n.toLocaleString('id-ID');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let P = [], sel = null;
+
+fetch('/api/products').then((r) => r.json()).then((d) => {
+  P = Array.isArray(d) ? d : [];
+  $('list').innerHTML = P.length ? P.map((p) =>
+    `<div class="card"><b>${esc(p.name)}</b><small>${esc(p.desc)}</small><div>${rp(p.price)}</div><button onclick="pick('${p.id}')">Pilih</button></div>`).join('')
+    : 'Belum ada produk.';
+}).catch(() => $('list').textContent = 'Produk gagal dimuat.');
+
+function calc() { $('tot').textContent = rp(sel.price * (+$('qty').value || 1)); }
+function pick(id) {
+  sel = P.find((p) => p.id === id);
+  $('pn').textContent = sel.name; $('form').hidden = false; $('done').hidden = true; calc();
+  $('form').scrollIntoView({ behavior: 'smooth' });
+}
+$('qty').oninput = calc;
+
+$('send').onclick = async () => {
+  $('err').textContent = ''; $('send').disabled = true;
+  try {
+    const r = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productId: sel.id, name: $('name').value, wa: $('wa').value, qty: $('qty').value, note: $('note').value }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error);
+    const msg = encodeURIComponent(`Halo, saya sudah pesan. Kode: ${d.id}, total ${rp(d.total)}`);
+    $('form').hidden = true; $('done').hidden = false;
+    $('done').innerHTML = `<b>Pesanan diterima</b><p>Kode pesanan: <b>${d.id}</b><br>Total: ${rp(d.total)}<br>Simpan kodenya untuk cek status.</p>
+      <a href="https://wa.me/${ADMIN_WA}?text=${msg}"><button>Konfirmasi lewat WhatsApp</button></a>`;
+  } catch (e) { $('err').textContent = e.message; }
+  $('send').disabled = false;
+};
+
+$('chk').onclick = async () => {
+  const r = await fetch('/api/orders?id=' + encodeURIComponent($('cid').value.trim()));
+  const d = await r.json();
+  $('cres').textContent = r.ok ? `${d.product}: ${d.status}` : d.error;
+};
+</script></body></html>

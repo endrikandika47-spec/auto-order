@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin – Toko Saya</title><meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head><body>
+<header><h1>Panel Admin</h1><a href="index.html">Lihat toko</a></header>
+<main>
+<section id="login" class="box">
+  <label>Password admin<input id="pw" type="password" autocomplete="current-password"></label>
+  <button id="go">Masuk</button><p id="lerr" role="alert"></p>
+</section>
+
+<div id="app" hidden>
+  <div class="tabs"><button id="t1" class="on">Pesanan</button><button id="t2" class="ghost">Produk</button><button id="out" class="ghost" style="margin-left:auto">Keluar</button></div>
+  <div id="orders" class="scroll"></div>
+  <div id="prods" hidden></div>
+  <p id="msg" role="status"></p>
+</div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const rp = (n) => 'Rp' + n.toLocaleString('id-ID');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const STATUS = ['pending', 'dibayar', 'diproses', 'selesai', 'batal'];
+let T = sessionStorage.getItem('t'), P = [], O = [];
+
+async function api(url, method = 'GET', body) {
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + T }, body: body && JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { logout(); }
+  if (!r.ok) throw new Error(j.error || 'Terjadi kesalahan');
+  return j;
+}
+function logout() { sessionStorage.removeItem('t'); T = null; $('app').hidden = true; $('login').hidden = false; }
+function flash(t) { $('msg').textContent = t; setTimeout(() => $('msg').textContent = '', 2500); }
+
+$('go').onclick = async () => {
+  try {
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: $('pw').value }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error);
+    T = j.token; sessionStorage.setItem('t', T); start();
+  } catch (e) { $('lerr').textContent = e.message; }
+};
+$('out').onclick = logout;
+$('t1').onclick = () => tab(1); $('t2').onclick = () => tab(2);
+function tab(n) {
+  $('orders').hidden = n !== 1; $('prods').hidden = n !== 2;
+  $('t1').className = n === 1 ? 'on' : 'ghost'; $('t2').className = n === 2 ? 'on' : 'ghost';
+}
+
+async function start() {
+  $('login').hidden = true; $('app').hidden = false;
+  try { P = await api('/api/products'); O = await api('/api/orders'); drawOrders(); drawProds(); } catch (e) { flash(e.message); }
+}
+
+function drawOrders() {
+  $('orders').innerHTML = O.length ? `<table><tr><th>Pesanan</th><th>Pembeli</th><th>Total</th><th>Status</th><th></th></tr>` + O.map((o) =>
+    `<tr><td><b>${o.id}</b><br>${esc(o.product)} × ${o.qty}<br><small>${esc(o.note)}</small></td>
+     <td>${esc(o.name)}<br><a href="https://wa.me/${esc(o.wa.replace(/^0/, '62').replace(/\D/g, ''))}">${esc(o.wa)}</a></td>
+     <td>${rp(o.total)}</td>
+     <td><select onchange="setSt('${o.id}',this.value)">${STATUS.map((s) => `<option${s === o.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
+     <td><button class="ghost" onclick="delO('${o.id}')">Hapus</button></td></tr>`).join('') + '</table>' : 'Belum ada pesanan.';
+}
+async function setSt(id, status) { try { await api('/api/orders', 'PATCH', { id, status }); flash('Status diperbarui'); } catch (e) { flash(e.message); } }
+async function delO(id) {
+  if (!confirm('Hapus pesanan ' + id + '?')) return;
+  try { await api('/api/orders?id=' + id, 'DELETE'); O = O.filter((o) => o.id !== id); drawOrders(); } catch (e) { flash(e.message); }
+}
+
+function drawProds() {
+  $('prods').innerHTML = P.map((p, i) => `<div class="card" style="margin-bottom:10px">
+    <input value="${esc(p.name)}" placeholder="Nama produk" oninput="P[${i}].name=this.value">
+    <input type="number" value="${p.price}" placeholder="Harga" oninput="P[${i}].price=+this.value">
+    <input value="${esc(p.desc)}" placeholder="Deskripsi singkat" oninput="P[${i}].desc=this.value">
+    <label><input type="checkbox" style="width:auto" ${p.active ? 'checked' : ''} onchange="P[${i}].active=this.checked"> Tampil di toko</label>
+    <button class="ghost" onclick="P.splice(${i},1);drawProds()">Hapus produk</button></div>`).join('') +
+    `<div class="row"><button class="ghost" onclick="P.push({id:'p'+Date.now(),name:'',price:0,desc:'',active:true});drawProds()">Tambah produk</button><button onclick="saveP()">Simpan produk</button></div>`;
+}
+async function saveP() { try { await api('/api/products', 'PUT', { products: P }); flash('Produk disimpan'); } catch (e) { flash(e.message); } }
+
+if (T) start();
+</script></body></html>
